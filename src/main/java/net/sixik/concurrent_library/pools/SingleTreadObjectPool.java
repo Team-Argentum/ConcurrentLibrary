@@ -6,6 +6,10 @@ public abstract class SingleTreadObjectPool<T> implements ObjectPool<T> {
     protected final Object[] objects;
     protected int allocated = 0;
 
+    public SingleTreadObjectPool() {
+        this(DEFAULT_SIZE);
+    }
+
     public SingleTreadObjectPool(int size) {
         this.size = size;
         this.objects = new Object[size];

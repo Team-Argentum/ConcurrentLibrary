@@ -6,8 +6,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class LockFreeObjectPool<T> implements ObjectPool<T> {
 
-    public static final int DEFAULT_SIZE = 32;
-
     protected static class Node<T> {
         final T item;
 
