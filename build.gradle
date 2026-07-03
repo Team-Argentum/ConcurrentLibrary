@@ -9,14 +9,54 @@ repositories {
     mavenCentral()
 }
 
+sourceSets {
+    benchmark {
+        java.srcDir file('src/benchmark/java')
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    benchmarkImplementation.extendsFrom implementation
+    benchmarkRuntimeOnly.extendsFrom runtimeOnly
+}
+
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'it.unimi.dsi:fastutil:8.5.15'
+
+    benchmarkImplementation 'it.unimi.dsi:fastutil:8.5.15'
+    benchmarkImplementation 'com.trivago:fastutil-concurrent-wrapper:0.2.2'
+    benchmarkImplementation 'org.jctools:jctools-core:4.0.5'
+    benchmarkImplementation 'org.openjdk.jmh:jmh-core:1.37'
+    benchmarkAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
 
     implementation "org.jetbrains:annotations:26.1.0"
 }
 
 test {
     useJUnitPlatform()
+}
+
+tasks.register('benchmark', JavaExec) {
+    group = 'verification'
+    description = 'Runs JMH benchmarks. Override with -PbenchmarkInclude=... and -PbenchmarkArgs="...".'
+    dependsOn benchmarkClasses
+    classpath = sourceSets.benchmark.runtimeClasspath
+    mainClass = 'org.openjdk.jmh.Main'
+
+    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark')
+    def extraArgs = providers.gradleProperty('benchmarkArgs').orElse('')
+    def resultFile = layout.buildDirectory.file('reports/jmh/results.json')
+    doFirst {
+        resultFile.get().asFile.parentFile.mkdirs()
+    }
+    args include.get()
+    args '-rf', 'json', '-rff', resultFile.get().asFile.absolutePath
+    if (!extraArgs.get().isBlank()) {
+        args extraArgs.get().split(' ')
+    }
 }
