@@ -53,6 +53,11 @@ public final class Builder {
         return this;
     }
 
+    /**
+     * Selects legacy plain-memory storage. The produced table is not thread-safe
+     * and is intended only for single-threaded experiments.
+     */
+    @Deprecated(forRemoval = false)
     public Builder plain() {
         this.order = Order.PLAIN;
         return this;

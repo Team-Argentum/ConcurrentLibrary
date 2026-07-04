@@ -38,7 +38,9 @@ dependencies {
 }
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'single-threaded'
+    }
 }
 
 tasks.register('benchmark', JavaExec) {
@@ -48,7 +50,7 @@ tasks.register('benchmark', JavaExec) {
     classpath = sourceSets.benchmark.runtimeClasspath
     mainClass = 'org.openjdk.jmh.Main'
 
-    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark')
+    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark|Long2ReferenceMapConcurrentBenchmark|Long2IntStressBenchmark|Long2ReferenceStressBenchmark')
     def extraArgs = providers.gradleProperty('benchmarkArgs').orElse('')
     def resultFormat = providers.gradleProperty('benchmarkResultFormat').orElse('json')
     def resultFileOverride = providers.gradleProperty('benchmarkResultFile')
@@ -66,5 +68,15 @@ tasks.register('benchmark', JavaExec) {
             : defaultResultFile.get().asFile.absolutePath)
     if (!extraArgs.get().isBlank()) {
         args extraArgs.get().split(' ')
+    }
+}
+
+tasks.register('singleThreadedTest', Test) {
+    group = 'verification'
+    description = 'Runs legacy single-threaded Long2Int tests that are excluded from the default concurrent test suite.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'single-threaded'
     }
 }

@@ -1,6 +1,7 @@
 package net.sixik.concurrent_library.long2reference;
 
 import it.unimi.dsi.fastutil.longs.Long2ReferenceOpenHashMap;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -182,13 +183,6 @@ class Long2ReferenceTest {
                 .build();
         assertInstanceOf(StrictDenseChecked.class, strict);
 
-        Long2Reference<String> plainPaged = Long2Reference.builder()
-                .range(0L, 8L)
-                .paged()
-                .plain()
-                .build();
-        assertInstanceOf(PlainPagedChecked.class, plainPaged);
-
         Long2Reference<String> nullableCounting = Long2Reference.builder()
                 .range(0L, 4L)
                 .nullable()
@@ -198,6 +192,17 @@ class Long2ReferenceTest {
         assertTrue(nullableCounting.containsKey(1L));
         assertNull(nullableCounting.get(1L));
         assertEquals(1L, nullableCounting.countByScan());
+    }
+
+    @Test
+    @Tag("single-threaded")
+    void plainBuilderCreatesLegacySingleThreadedVariant() {
+        Long2Reference<String> plainPaged = Long2Reference.builder()
+                .range(0L, 8L)
+                .paged()
+                .plain()
+                .build();
+        assertInstanceOf(PlainPagedChecked.class, plainPaged);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package net.sixik.concurrent_library.long2int;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,6 +52,43 @@ class Long2IntTest {
             assertEquals(3L, lookup.size());
             assertEquals(3L, Long2Int.inspect(lookup).exactSize());
             assertTrue(Long2Int.inspect(lookup).healthCheck().healthy());
+        }
+    }
+
+    @Test
+    void lookupAndAppendBuildersGrowRejectMismatchedArraysAndPreserveLastValue() {
+        assertThrows(IllegalArgumentException.class, () -> Long2Int.lookup(new long[]{1L}, new int[]{}));
+
+        Long2IntLookupBuilder lookupBuilder = Long2Int.lookupBuilder(0);
+        assertThrows(IllegalArgumentException.class, () -> lookupBuilder.putAll(new long[]{1L}, new int[]{}));
+        try (Long2IntLookup lookup = lookupBuilder
+                .put(1L, 10)
+                .put(2L, 20)
+                .put(1L, 30)
+                .putAll(new long[]{Long.MIN_VALUE, Long.MAX_VALUE}, new int[]{40, 50})
+                .build()) {
+            assertEquals(30, lookup.getOrDefault(1L, -1));
+            assertEquals(20, lookup.getOrDefault(2L, -1));
+            assertEquals(40, lookup.getOrDefault(Long.MIN_VALUE, -1));
+            assertEquals(50, lookup.getOrDefault(Long.MAX_VALUE, -1));
+            assertEquals(4L, lookup.size());
+            assertTrue(Long2Int.inspect(lookup).healthCheck().healthy());
+        }
+
+        Long2IntAppendMapBuilder appendBuilder = Long2Int.fixedBuilder(0);
+        assertThrows(IllegalArgumentException.class, () -> appendBuilder.putAll(new long[]{1L}, new int[]{}));
+        try (Long2IntAppendMap map = appendBuilder
+                .put(1L, 10)
+                .put(2L, 20)
+                .put(1L, 30)
+                .putAll(new long[]{3L, 4L}, new int[]{40, 50})
+                .build()) {
+            assertEquals(30, map.getOrDefault(1L, -1));
+            assertEquals(20, map.getOrDefault(2L, -1));
+            assertEquals(40, map.getOrDefault(3L, -1));
+            assertEquals(50, map.getOrDefault(4L, -1));
+            assertEquals(4L, map.size());
+            assertTrue(Long2Int.inspect(map).healthCheck().healthy());
         }
     }
 
@@ -185,6 +223,82 @@ class Long2IntTest {
     }
 
     @Test
+    void dynamicCloseMakesAllPublicOperationsFailFast() {
+        Long2IntMap map = Long2Int.concurrent(4);
+        assertTrue(map.put(1L, 1));
+        map.close();
+
+        assertThrows(IllegalStateException.class, () -> map.get(1L));
+        assertThrows(IllegalStateException.class, () -> map.getOrDefault(1L, -1));
+        assertThrows(IllegalStateException.class, () -> map.containsKey(1L));
+        assertThrows(IllegalStateException.class, map::size);
+        assertThrows(IllegalStateException.class, () -> map.put(2L, 2));
+        assertThrows(IllegalStateException.class, () -> map.putIfAbsent(2L, 2));
+        assertThrows(IllegalStateException.class, () -> map.remove(1L));
+        assertThrows(IllegalStateException.class, () -> map.removeAndGetOld(1L, -1));
+        assertThrows(IllegalStateException.class, () -> map.compareAndSet(1L, 1, 2));
+        assertThrows(IllegalStateException.class, () -> map.addIfPresent(1L, 1));
+        assertThrows(IllegalStateException.class, () -> map.getAndAddIfPresent(1L, 1, -1));
+        assertThrows(IllegalStateException.class, map::capacity);
+        assertThrows(IllegalStateException.class, map::completeResize);
+    }
+
+    @Test
+    void dynamicMapsHandleMissingPayloadValuesOverflowingAddsAndFullLongDomain() {
+        for (boolean managed : new boolean[]{false, true}) {
+            try (Long2IntMap map = managed ? Long2Int.concurrentManaged(4) : Long2Int.concurrent(4)) {
+                assertTrue(map.put(Long.MIN_VALUE, Integer.MIN_VALUE));
+                assertTrue(map.put(Long.MAX_VALUE, Integer.MAX_VALUE));
+                assertTrue(map.put(0L, -1));
+
+                assertTrue(map.containsKey(Long.MIN_VALUE));
+                assertEquals(Integer.MIN_VALUE, map.getOrDefault(Long.MIN_VALUE, 123));
+                assertEquals(Integer.MAX_VALUE, map.getAndAddIfPresent(Long.MAX_VALUE, 1, -1));
+                assertEquals(Integer.MIN_VALUE, map.getOrDefault(Long.MAX_VALUE, -1));
+                assertTrue(map.addIfPresent(0L, Integer.MIN_VALUE));
+                assertEquals(Integer.MAX_VALUE, map.getOrDefault(0L, -1));
+                assertFalse(map.compareAndSet(123L, 1, 2));
+                assertFalse(map.replace(123L, 1, 2));
+
+                assertEquals(Integer.MIN_VALUE, map.removeAndGetOld(Long.MIN_VALUE, 77));
+                assertFalse(map.containsKey(Long.MIN_VALUE));
+                map.completeResize();
+                assertEquals(Long2Int.inspect(map).exactSize(), map.size(), managed ? "managed" : "plain");
+                assertTrue(Long2Int.inspect(map).healthCheck().healthy());
+            }
+        }
+    }
+
+    @Test
+    void dynamicCapacityResizeStatsAndRebuildAfterDeletePressureStayConsistent() {
+        for (boolean managed : new boolean[]{false, true}) {
+            try (Long2IntMap map = managed ? Long2Int.concurrentManaged(2) : Long2Int.concurrent(2)) {
+                long initialCapacity = map.capacity();
+                for (int i = 0; i < 512; i++) {
+                    assertTrue(map.put(i, i), String.valueOf(i));
+                }
+                for (int i = 0; i < 512; i += 2) {
+                    assertTrue(map.remove(i), String.valueOf(i));
+                }
+                for (int i = 0; i < 512; i += 2) {
+                    assertTrue(map.put(i, -i), String.valueOf(i));
+                }
+                map.completeResize();
+
+                Long2IntStats stats = Long2Int.inspect(map).stats();
+                assertTrue(map.capacity() >= initialCapacity);
+                assertEquals(512L, map.size());
+                assertEquals(512L, Long2Int.inspect(map).exactSize());
+                assertFalse(stats.resizeInProgress());
+                assertTrue(stats.capacity() >= map.capacity());
+                assertTrue(stats.offHeapBytes() > 0L);
+                assertTrue(Long2Int.inspect(map).healthCheck().healthy(), managed ? "managed" : "plain");
+            }
+        }
+    }
+
+    @Test
+    @Tag("single-threaded")
     void singleThreadedLookupUsesLastValueFullLongDomainAndMissingValue() {
         long[] keys = {0L, Long.MIN_VALUE, 42L, Long.MAX_VALUE, 42L};
         int[] values = {1, 2, 3, 4, 5};
@@ -204,6 +318,41 @@ class Long2IntTest {
     }
 
     @Test
+    @Tag("single-threaded")
+    void singleThreadedBuilderOptionsSelectBackendHashingAndClosePolicy() {
+        try (Long2IntSingleThreadMap heap = Long2Int.singleThreadedBuilder(4)
+                .heapDirectThreshold(10)
+                .backend(Long2IntBackend.AUTO)
+                .hashing(Long2IntHashing.MIX64)
+                .preTouch(true)
+                .clearEntriesOnAllocate(true)
+                .buildFixed()) {
+            assertEquals(Long2IntBackend.HEAP, heap.backend());
+            assertTrue(heap.put(1L, 1));
+            assertEquals(1, heap.get(1L));
+        }
+
+        try (Long2IntSingleThreadMap direct = Long2Int.singleThreadedBuilder(11)
+                .heapDirectThreshold(10)
+                .backend(Long2IntBackend.AUTO)
+                .buildFixed()) {
+            assertEquals(Long2IntBackend.DIRECT, direct.backend());
+            assertTrue(direct.backendBytes() > 0L);
+        }
+
+        Long2IntSingleThreadMap noCloseChecks = Long2Int.singleThreadedBuilder(4)
+                .closeChecks(false)
+                .buildFixed();
+        assertTrue(noCloseChecks.put(1L, 1));
+        noCloseChecks.close();
+        assertThrows(NullPointerException.class, () -> noCloseChecks.get(1L));
+
+        assertThrows(IllegalArgumentException.class, () -> Long2Int.singleThreadedBuilder(1).heapDirectThreshold(-1));
+        assertThrows(UnsupportedOperationException.class, () -> Long2Int.singleThreadedBuilder(1).backend(Long2IntBackend.PANAMA).buildFixed());
+    }
+
+    @Test
+    @Tag("single-threaded")
     void singleThreadedHeapFixedSupportsPlainUpdatesAndCursorReuse() {
         try (Long2IntSingleThreadMap map = Long2Int.singleThreadedHeapFixed(8)) {
             assertEquals(Long2IntBackend.HEAP, map.backend());
@@ -233,6 +382,7 @@ class Long2IntTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedDirectFixedUsesOffHeapBackend() {
         try (Long2IntSingleThreadMap map = Long2Int.singleThreadedDirectFixed(8)) {
             assertEquals(Long2IntBackend.DIRECT, map.backend());
@@ -247,6 +397,7 @@ class Long2IntTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedMutableRemovesMissingValuePayloadAndReusesDeletedSlot() {
         try (Long2IntMap map = Long2Int.singleThreadedBuilder(8)
                 .missingValue(Integer.MIN_VALUE)
@@ -265,6 +416,7 @@ class Long2IntTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedDirectMutableUsesOffHeapBackendAndDeletes() {
         try (Long2IntMap map = Long2Int.singleThreadedBuilder(8)
                 .backend(Long2IntBackend.DIRECT)

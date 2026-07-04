@@ -62,18 +62,28 @@ public final class Long2Int {
         }
     }
 
+    /**
+     * Legacy single-threaded lookup. Not thread-safe; kept for completeness only.
+     */
+    @Deprecated(forRemoval = false)
     public static Long2IntLookup singleThreadedLookup(long[] keys, int[] values) {
         return singleThreadedBuilder(keys.length).loadFactor(0.82d).buildLookup(keys, values);
     }
 
+    /** Legacy single-threaded heap lookup. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntLookup singleThreadedHeapLookup(long[] keys, int[] values) {
         return singleThreadedBuilder(keys.length).backend(Long2IntBackend.HEAP).loadFactor(0.82d).buildLookup(keys, values);
     }
 
+    /** Legacy single-threaded direct-memory lookup. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntLookup singleThreadedDirectLookup(long[] keys, int[] values) {
         return singleThreadedBuilder(keys.length).backend(Long2IntBackend.DIRECT).loadFactor(0.82d).buildLookup(keys, values);
     }
 
+    /** Legacy single-threaded Panama lookup. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntLookup singleThreadedPanamaLookup(long[] keys, int[] values) {
         return singleThreadedBuilder(keys.length).backend(Long2IntBackend.PANAMA).loadFactor(0.82d).buildLookup(keys, values);
     }
@@ -86,18 +96,26 @@ public final class Long2Int {
         return new FixedDirectLong2IntAppendMap(tableCapacity(expectedSize));
     }
 
+    /** Legacy single-threaded fixed map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntSingleThreadMap singleThreadedFixed(int expectedSize) {
         return singleThreadedBuilder(expectedSize).buildFixed();
     }
 
+    /** Legacy single-threaded heap fixed map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntSingleThreadMap singleThreadedHeapFixed(int expectedSize) {
         return singleThreadedBuilder(expectedSize).backend(Long2IntBackend.HEAP).buildFixed();
     }
 
+    /** Legacy single-threaded direct-memory fixed map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntSingleThreadMap singleThreadedDirectFixed(int expectedSize) {
         return singleThreadedBuilder(expectedSize).backend(Long2IntBackend.DIRECT).buildFixed();
     }
 
+    /** Legacy single-threaded Panama fixed map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntSingleThreadMap singleThreadedPanamaFixed(int expectedSize) {
         return singleThreadedBuilder(expectedSize).backend(Long2IntBackend.PANAMA).buildFixed();
     }
@@ -110,22 +128,35 @@ public final class Long2Int {
         return new DynamicDirectLong2IntMap(expectedSize);
     }
 
+    /** Legacy single-threaded mutable map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntMap singleThreadedMutable(int expectedSize) {
         return singleThreadedBuilder(expectedSize).loadFactor(0.65d).buildMutable();
     }
 
+    /** Legacy single-threaded heap mutable map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntMap singleThreadedHeapMutable(int expectedSize) {
         return singleThreadedBuilder(expectedSize).backend(Long2IntBackend.HEAP).loadFactor(0.65d).buildMutable();
     }
 
+    /** Legacy single-threaded direct-memory mutable map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntMap singleThreadedDirectMutable(int expectedSize) {
         return singleThreadedBuilder(expectedSize).backend(Long2IntBackend.DIRECT).loadFactor(0.65d).buildMutable();
     }
 
+    /** Legacy single-threaded Panama mutable map. Not thread-safe. */
+    @Deprecated(forRemoval = false)
     public static Long2IntMap singleThreadedPanamaMutable(int expectedSize) {
         return singleThreadedBuilder(expectedSize).backend(Long2IntBackend.PANAMA).loadFactor(0.65d).buildMutable();
     }
 
+    /**
+     * Legacy single-threaded builder. Not thread-safe; kept for completeness
+     * only and intentionally excluded from the regular concurrent benchmarks.
+     */
+    @Deprecated(forRemoval = false)
     public static SingleThreadLong2IntBuilder singleThreadedBuilder(int expectedSize) {
         return new SingleThreadLong2IntBuilder(expectedSize);
     }

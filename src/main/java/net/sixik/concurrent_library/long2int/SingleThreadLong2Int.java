@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/** Legacy implementation for non-thread-safe Long2Int variants. */
+@Deprecated(forRemoval = false)
 final class SingleThreadLong2Int {
     private static final Unsafe U = unsafe();
     private static final long PHI = 0x9E3779B97F4A7C15L;

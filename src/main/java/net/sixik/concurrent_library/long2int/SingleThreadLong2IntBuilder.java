@@ -1,5 +1,13 @@
 package net.sixik.concurrent_library.long2int;
 
+/**
+ * Legacy single-threaded Long2Int builder.
+ *
+ * <p>This type is intentionally outside the primary concurrent collection surface.
+ * It is kept for completeness and niche single-threaded/off-heap experiments only.
+ * Collections produced by this builder are not thread-safe.</p>
+ */
+@Deprecated(forRemoval = false)
 public final class SingleThreadLong2IntBuilder {
     static final int DEFAULT_HEAP_DIRECT_THRESHOLD = 2_000_000;
 

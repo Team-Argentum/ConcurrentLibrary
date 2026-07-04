@@ -1,5 +1,13 @@
 package net.sixik.concurrent_library.long2reference;
 
+/**
+ * Legacy plain-memory Long2Reference variant.
+ *
+ * <p>This implementation is not thread-safe. It is kept only for completeness
+ * and single-threaded experiments; it is intentionally excluded from the regular
+ * concurrent benchmark surface.</p>
+ */
+@Deprecated(forRemoval = false)
 public final class PlainDenseChecked<V> implements Long2Reference<V> {
     private final long base;
     private final long limit;

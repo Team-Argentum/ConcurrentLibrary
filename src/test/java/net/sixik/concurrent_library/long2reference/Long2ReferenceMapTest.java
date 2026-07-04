@@ -3,7 +3,10 @@ package net.sixik.concurrent_library.long2reference;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +40,30 @@ class Long2ReferenceMapTest {
         assertThrows(IllegalArgumentException.class, () -> new Long2ReferenceMap<String>(0L, -1L));
         assertThrows(ArithmeticException.class, () -> new Long2ReferenceMap<String>(Long.MAX_VALUE, 1L));
         assertThrows(IllegalArgumentException.class, () -> new Long2ReferenceMap<String>(0L, 1L, 3));
+    }
+
+    @Test
+    void builderOptionsCoverMapViewDisablePageBitBoundsAndSparseHotWindows() {
+        Long2ReferenceMap<String> noView = Long2ReferenceMap.<String>builder()
+                .hotRange(100L, 0L)
+                .pageBits(4)
+                .prefillHotWindow(false)
+                .mapViewEnabled(false)
+                .build();
+        assertEquals(100L, noView.stats().hotBaseKey());
+        assertEquals(0L, noView.stats().hotCapacity());
+        assertEquals(0L, noView.stats().hotPageCount());
+        assertThrows(UnsupportedOperationException.class, noView::asMapView);
+        noView.put(Long.MIN_VALUE, "min");
+        noView.put(Long.MAX_VALUE, "max");
+        assertEquals("min", noView.get(Long.MIN_VALUE));
+        assertEquals("max", noView.get(Long.MAX_VALUE));
+
+        assertDoesNotThrow(() -> Long2ReferenceMap.builder().pageBits(4).build());
+        assertDoesNotThrow(() -> Long2ReferenceMap.builder().pageBits(20).build());
+        assertThrows(IllegalArgumentException.class, () -> Long2ReferenceMap.builder().pageBits(3));
+        assertThrows(IllegalArgumentException.class, () -> Long2ReferenceMap.builder().pageBits(21));
+        assertThrows(IllegalArgumentException.class, () -> Long2ReferenceMap.builder().hotRange(0L, -1L));
     }
 
     @Test
@@ -178,6 +205,60 @@ class Long2ReferenceMapTest {
     }
 
     @Test
+    void mapViewCoversComputeMergeClearWrongTypesAndEntrySnapshots() {
+        Long2ReferenceMap<String> map = Long2ReferenceMap.concurrent(-16L, 64L);
+        ConcurrentMap<Long, String> view = map.asMapView();
+
+        assertNull(view.get("not-a-long"));
+        assertFalse(view.containsKey("not-a-long"));
+        assertNull(view.remove("not-a-long"));
+        assertFalse(view.remove("not-a-long", "value"));
+        assertThrows(NullPointerException.class, () -> view.put(null, "x"));
+        assertThrows(NullPointerException.class, () -> view.put(1L, null));
+        assertThrows(NullPointerException.class, () -> view.computeIfAbsent(null, key -> "x"));
+        assertThrows(NullPointerException.class, () -> view.computeIfAbsent(1L, null));
+
+        assertEquals("one", view.computeIfAbsent(1L, key -> "one"));
+        assertEquals("one!", view.computeIfPresent(1L, (key, value) -> value + "!"));
+        assertEquals("one!?", view.compute(1L, (key, value) -> value + "?"));
+        assertEquals("two", view.compute(2L, (key, value) -> value == null ? "two" : "bad"));
+        assertEquals("two+z", view.merge(2L, "z", (oldValue, newValue) -> oldValue + "+" + newValue));
+        assertNull(view.computeIfPresent(1L, (key, value) -> null));
+        assertFalse(view.containsKey(1L));
+
+        Set<Long> snapshotKeys = new HashSet<>();
+        Iterator<Map.Entry<Long, String>> iterator = view.entrySet().iterator();
+        view.put(3L, "three");
+        while (iterator.hasNext()) {
+            Map.Entry<Long, String> entry = iterator.next();
+            snapshotKeys.add(entry.getKey());
+            assertNotNull(entry.getValue());
+        }
+        assertEquals(Set.of(2L), snapshotKeys);
+
+        view.clear();
+        assertTrue(view.isEmpty());
+        assertEquals(0, view.entrySet().size());
+        assertEquals(0L, map.mappingCount());
+    }
+
+    @Test
+    void iteratorIsSnapshotAndNextFailsAfterExhaustion() {
+        Long2ReferenceMap<String> map = Long2ReferenceMap.concurrent(0L, 16L);
+        map.put(1L, "one");
+        Iterator<Long2ReferenceMap.Entry<String>> iterator = map.iterator();
+        map.put(2L, "two");
+
+        assertTrue(iterator.hasNext());
+        Long2ReferenceMap.Entry<String> entry = iterator.next();
+        assertEquals(1L, entry.key());
+        assertEquals("one", entry.value());
+        assertFalse(iterator.hasNext());
+        assertThrows(java.util.NoSuchElementException.class, iterator::next);
+        assertEquals("two", map.get(2L));
+    }
+
+    @Test
     void setExistingOverwritesOnlyPresentMappings() {
         Long2ReferenceMap<String> map = Long2ReferenceMap.concurrent(0L, 64L);
 
@@ -245,6 +326,31 @@ class Long2ReferenceMapTest {
                 assertEquals(thread + ":" + i, map.get(key));
             }
         }
+    }
+
+    @Test
+    void repeatedClearVacuumAndReuseKeepStatsAndCountsConsistent() {
+        Long2ReferenceMap<String> map = Long2ReferenceMap.<String>builder()
+                .pageBits(4)
+                .vacuumOnEmptyPage(true)
+                .build();
+
+        for (int round = 0; round < 64; round++) {
+            for (int i = 0; i < 256; i++) {
+                map.put(((long) round << 32) | i, round + ":" + i);
+            }
+            assertEquals(256L, map.mappingCount());
+            map.clear();
+            assertEquals(0L, map.mappingCount());
+            assertTrue(map.isEmpty());
+            assertEquals(0, map.size());
+            map.vacuum();
+            assertTrue(map.stats().allocatedPages() >= map.stats().retiredPages());
+        }
+
+        map.put(7L, "seven");
+        assertEquals("seven", map.get(7L));
+        assertEquals(1L, map.mappingCount());
     }
 
     private static void await(CountDownLatch latch) {

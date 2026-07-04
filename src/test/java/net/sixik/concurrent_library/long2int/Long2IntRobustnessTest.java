@@ -1,6 +1,7 @@
 package net.sixik.concurrent_library.long2int;
 
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -33,6 +34,7 @@ class Long2IntRobustnessTest {
     };
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedLookupBackendsMatchHashMapAcrossRandomAndEdgeKeys() {
         for (Long2IntBackend backend : new Long2IntBackend[]{Long2IntBackend.HEAP, Long2IntBackend.DIRECT}) {
             long[] keys = new long[768];
@@ -80,6 +82,7 @@ class Long2IntRobustnessTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedFixedBackendsMatchReferenceModelForUpdatesAndCursor() {
         for (Long2IntBackend backend : new Long2IntBackend[]{Long2IntBackend.HEAP, Long2IntBackend.DIRECT}) {
             try (Long2IntSingleThreadMap map = Long2Int.singleThreadedBuilder(512)
@@ -145,6 +148,7 @@ class Long2IntRobustnessTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedMutableBackendsMatchReferenceModelForDeletesAndReuse() {
         for (Long2IntBackend backend : new Long2IntBackend[]{Long2IntBackend.HEAP, Long2IntBackend.DIRECT}) {
             try (Long2IntMap map = Long2Int.singleThreadedBuilder(1_024)
@@ -200,6 +204,7 @@ class Long2IntRobustnessTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void singleThreadedFixedReportsFullButStillUpdatesExistingKeys() {
         try (Long2IntSingleThreadMap map = Long2Int.singleThreadedBuilder(6)
                 .backend(Long2IntBackend.HEAP)
@@ -383,6 +388,7 @@ class Long2IntRobustnessTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void closeChecksCanBeDisabledButCloseStillReleasesStorage() {
         Long2IntSingleThreadMap map = Long2Int.singleThreadedBuilder(8)
                 .backend(Long2IntBackend.HEAP)
@@ -394,6 +400,7 @@ class Long2IntRobustnessTest {
     }
 
     @Test
+    @Tag("single-threaded")
     void builderRejectsInvalidArgumentsAndPanamaIsExplicitlyUnavailable() {
         assertThrows(IllegalArgumentException.class, () -> Long2Int.singleThreadedBuilder(-1));
         assertThrows(IllegalArgumentException.class, () -> Long2Int.singleThreadedBuilder(1).loadFactor(0.0d));

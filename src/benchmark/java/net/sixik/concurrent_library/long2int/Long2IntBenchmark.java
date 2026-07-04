@@ -22,7 +22,6 @@ import org.openjdk.jmh.infra.Blackhole;
 
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
@@ -49,8 +48,6 @@ public class Long2IntBenchmark {
         long[] readMisses;
         long[] updateKeys;
         long[] insertKeys;
-        Long2IntLookup lookup;
-        Long2IntAppendMap fixed;
         Long2IntMap dynamic;
         Long2IntMap managed;
         Long2IntOpenHashMap fastutil;
@@ -74,8 +71,6 @@ public class Long2IntBenchmark {
                 values[i] = valueFor(i);
             }
 
-            lookup = Long2Int.lookup(keys, values);
-            fixed = Long2Int.fixedBuilder(filled).putAll(keys, values).build();
             dynamic = Long2Int.concurrent(filled);
             managed = Long2Int.concurrentManaged(filled);
             fastutil = new Long2IntOpenHashMap(filled);
@@ -110,8 +105,6 @@ public class Long2IntBenchmark {
 
         @TearDown(Level.Trial)
         public void tearDown() {
-            close(lookup);
-            close(fixed);
             close(dynamic);
             close(managed);
         }
@@ -146,23 +139,13 @@ public class Long2IntBenchmark {
         }
     }
 
-    @State(Scope.Benchmark)
+    @State(Scope.Thread)
     public static class SharedCursor {
-        final AtomicInteger cursor = new AtomicInteger();
+        int cursor;
 
         long next(long[] keys) {
-            return keys[cursor.getAndIncrement() & (keys.length - 1)];
+            return keys[cursor++ & (keys.length - 1)];
         }
-    }
-
-    @Benchmark
-    public int long2int_lookup_getHit(DataSet data, Cursor cursor) {
-        return data.lookup.getOrDefault(cursor.next(data.readHits), MISSING_VALUE);
-    }
-
-    @Benchmark
-    public int long2int_fixed_getHit(DataSet data, Cursor cursor) {
-        return data.fixed.getOrDefault(cursor.next(data.readHits), MISSING_VALUE);
     }
 
     @Benchmark
@@ -197,16 +180,6 @@ public class Long2IntBenchmark {
     }
 
     @Benchmark
-    public int long2int_lookup_getMiss(DataSet data, Cursor cursor) {
-        return data.lookup.getOrDefault(cursor.next(data.readMisses), MISSING_VALUE);
-    }
-
-    @Benchmark
-    public int long2int_fixed_getMiss(DataSet data, Cursor cursor) {
-        return data.fixed.getOrDefault(cursor.next(data.readMisses), MISSING_VALUE);
-    }
-
-    @Benchmark
     public int long2int_dynamic_getMiss(DataSet data, Cursor cursor) {
         return data.dynamic.getOrDefault(cursor.next(data.readMisses), MISSING_VALUE);
     }
@@ -235,12 +208,6 @@ public class Long2IntBenchmark {
     public int jctools_getMiss(DataSet data, Cursor cursor) {
         Integer value = data.jctools.get(cursor.next(data.readMisses));
         return value == null ? MISSING_VALUE : value;
-    }
-
-    @Benchmark
-    public void long2int_fixed_putUpdate(DataSet data, Cursor cursor, Blackhole blackhole) {
-        long key = cursor.next(data.updateKeys);
-        blackhole.consume(data.fixed.put(key, (int) key));
     }
 
     @Benchmark

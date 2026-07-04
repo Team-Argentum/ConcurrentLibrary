@@ -150,10 +150,11 @@ public final class Long2ReferenceMap<V> {
             if (!reserveInsert(page)) {
                 continue;
             }
+            size.increment();
             if (REF.compareAndSet(page.values, offset, null, value)) {
-                size.increment();
                 return null;
             }
+            size.decrement();
             cancelInsertReservation(page);
         }
     }
@@ -197,10 +198,11 @@ public final class Long2ReferenceMap<V> {
             if (!reserveInsert(page)) {
                 continue;
             }
+            size.increment();
             if (REF.compareAndSet(page.values, offset, null, value)) {
-                size.increment();
                 return null;
             }
+            size.decrement();
             cancelInsertReservation(page);
         }
     }
@@ -569,6 +571,9 @@ public final class Long2ReferenceMap<V> {
         if (capacity < 0) {
             throw new IllegalArgumentException("capacity must be non-negative");
         }
+        if (capacity == 0L) {
+            return new HotWindow(baseKey, capacity, baseKey >> pageBits, 0);
+        }
         long limit = Math.addExact(baseKey, capacity);
         long firstPage = baseKey >> pageBits;
         long lastPageExclusive = ceilPageIndex(limit);
@@ -827,8 +832,15 @@ public final class Long2ReferenceMap<V> {
                     removed++;
                 }
             }
-            PAGE_LIVE.setRelease(page, 0);
-            tryRetirePage(cell, page);
+            if (removed != 0L) {
+                int live = (int) PAGE_LIVE.getAndAdd(page, -(int) removed);
+                if (live == Page.RETIRED || live < removed) {
+                    throw new IllegalStateException("page live counter underflow");
+                }
+            }
+            if ((int) PAGE_LIVE.getAcquire(page) == 0) {
+                tryRetirePage(cell, page);
+            }
             return removed;
         }
 
