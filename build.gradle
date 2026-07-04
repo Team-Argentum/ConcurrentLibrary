@@ -43,19 +43,27 @@ test {
 
 tasks.register('benchmark', JavaExec) {
     group = 'verification'
-    description = 'Runs JMH benchmarks. Override with -PbenchmarkInclude=... and -PbenchmarkArgs="...".'
+    description = 'Runs JMH benchmarks. Override with -PbenchmarkInclude=..., -PbenchmarkArgs="...", -PbenchmarkResultFormat=..., and -PbenchmarkResultFile=... .'
     dependsOn benchmarkClasses
     classpath = sourceSets.benchmark.runtimeClasspath
     mainClass = 'org.openjdk.jmh.Main'
 
     def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark')
     def extraArgs = providers.gradleProperty('benchmarkArgs').orElse('')
-    def resultFile = layout.buildDirectory.file('reports/jmh/results.json')
+    def resultFormat = providers.gradleProperty('benchmarkResultFormat').orElse('json')
+    def resultFileOverride = providers.gradleProperty('benchmarkResultFile')
+    def defaultResultFile = layout.buildDirectory.file("reports/jmh/results.${resultFormat.get()}")
     doFirst {
-        resultFile.get().asFile.parentFile.mkdirs()
+        def outputFile = resultFileOverride.isPresent()
+                ? file(resultFileOverride.get())
+                : defaultResultFile.get().asFile
+        outputFile.parentFile.mkdirs()
     }
     args include.get()
-    args '-rf', 'json', '-rff', resultFile.get().asFile.absolutePath
+    args '-rf', resultFormat.get()
+    args '-rff', (resultFileOverride.isPresent()
+            ? file(resultFileOverride.get()).absolutePath
+            : defaultResultFile.get().asFile.absolutePath)
     if (!extraArgs.get().isBlank()) {
         args extraArgs.get().split(' ')
     }

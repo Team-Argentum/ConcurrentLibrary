@@ -28,8 +28,18 @@ public sealed interface Long2Reference<V>
 
     long capacity();
 
+    /**
+     * Scans the backing storage and returns whether no slot was observed as present.
+     * This is weakly consistent under concurrent mutation and must not be used as a
+     * linearizable emptiness check.
+     */
     boolean isEmptyByScan();
 
+    /**
+     * Scans the backing storage and counts slots observed as present.
+     * This is weakly consistent under concurrent mutation and must not be used as a
+     * linearizable size.
+     */
     long countByScan();
 
     static <V> DenseChecked<V> dense(long baseKey, int capacity) {

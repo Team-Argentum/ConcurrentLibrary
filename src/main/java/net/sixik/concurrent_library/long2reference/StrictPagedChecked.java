@@ -16,7 +16,10 @@ public final class StrictPagedChecked<V> implements Long2Reference<V> {
     @SuppressWarnings("unchecked")
     public V get(long key) {
         long slot = delegate.checkedSlotLong(key);
-        Object[] page = page(slot);
+        Object[] page = delegate.pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getVolatile(page, (int) slot & PagedChecked.PAGE_MASK);
     }
 
@@ -26,13 +29,16 @@ public final class StrictPagedChecked<V> implements Long2Reference<V> {
             throw new NullPointerException();
         }
         long slot = delegate.checkedSlotLong(key);
-        REF.setVolatile(page(slot), (int) slot & PagedChecked.PAGE_MASK, value);
+        REF.setVolatile(delegate.pageForWrite(slot), (int) slot & PagedChecked.PAGE_MASK, value);
     }
 
     @Override
     public void delete(long key) {
         long slot = delegate.checkedSlotLong(key);
-        REF.setVolatile(page(slot), (int) slot & PagedChecked.PAGE_MASK, null);
+        Object[] page = delegate.pageForRead(slot);
+        if (page != null) {
+            REF.setVolatile(page, (int) slot & PagedChecked.PAGE_MASK, null);
+        }
     }
 
     @Override public V remove(long key) { return delegate.remove(key); }
@@ -44,7 +50,4 @@ public final class StrictPagedChecked<V> implements Long2Reference<V> {
     @Override public boolean isEmptyByScan() { return countByScan() == 0L; }
     @Override public long countByScan() { return delegate.countByScan(); }
 
-    private Object[] page(long slot) {
-        return PagedAccess.page(delegate, slot);
-    }
 }

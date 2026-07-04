@@ -17,16 +17,14 @@ public final class PlainPagedChecked<V> implements Long2Reference<V> {
                 + ((capacity & PagedChecked.PAGE_MASK) == 0 ? 0 : 1);
         int pageCount = Math.toIntExact(pageCountLong);
         this.pages = new Object[pageCount][];
-        for (int i = 0; i < pageCount; i++) {
-            this.pages[i] = new Object[PagedChecked.PAGE_SIZE];
-        }
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public V get(long key) {
         long slot = checkedSlotLong(key);
-        return (V) pages[(int) (slot >>> PagedChecked.PAGE_BITS)][(int) slot & PagedChecked.PAGE_MASK];
+        Object[] page = pageForRead(slot);
+        return page == null ? null : (V) page[(int) slot & PagedChecked.PAGE_MASK];
     }
 
     @Override
@@ -35,19 +33,25 @@ public final class PlainPagedChecked<V> implements Long2Reference<V> {
             throw new NullPointerException();
         }
         long slot = checkedSlotLong(key);
-        pages[(int) (slot >>> PagedChecked.PAGE_BITS)][(int) slot & PagedChecked.PAGE_MASK] = value;
+        pageForWrite(slot)[(int) slot & PagedChecked.PAGE_MASK] = value;
     }
 
     @Override
     public void delete(long key) {
         long slot = checkedSlotLong(key);
-        pages[(int) (slot >>> PagedChecked.PAGE_BITS)][(int) slot & PagedChecked.PAGE_MASK] = null;
+        Object[] page = pageForRead(slot);
+        if (page != null) {
+            page[(int) slot & PagedChecked.PAGE_MASK] = null;
+        }
     }
 
     @Override
     public V remove(long key) {
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         int offset = (int) slot & PagedChecked.PAGE_MASK;
         @SuppressWarnings("unchecked") V old = (V) page[offset];
         page[offset] = null;
@@ -57,7 +61,10 @@ public final class PlainPagedChecked<V> implements Long2Reference<V> {
     @Override
     public boolean compareAndSet(long key, V expected, V update) {
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForCas(slot, expected, update);
+        if (page == null) {
+            return expected == null;
+        }
         int offset = (int) slot & PagedChecked.PAGE_MASK;
         if (page[offset] == expected) {
             page[offset] = update;
@@ -84,9 +91,11 @@ public final class PlainPagedChecked<V> implements Long2Reference<V> {
         long remaining = capacity;
         for (Object[] page : pages) {
             int limit = (int) Math.min(PagedChecked.PAGE_SIZE, remaining);
-            for (int i = 0; i < limit; i++) {
-                if (page[i] != null) {
-                    count++;
+            if (page != null) {
+                for (int i = 0; i < limit; i++) {
+                    if (page[i] != null) {
+                        count++;
+                    }
                 }
             }
             remaining -= limit;
@@ -99,5 +108,27 @@ public final class PlainPagedChecked<V> implements Long2Reference<V> {
             throw new IndexOutOfBoundsException();
         }
         return key - base;
+    }
+
+    private Object[] pageForRead(long slot) {
+        return pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+    }
+
+    private Object[] pageForWrite(long slot) {
+        int pageIndex = (int) (slot >>> PagedChecked.PAGE_BITS);
+        Object[] page = pages[pageIndex];
+        if (page == null) {
+            page = new Object[PagedChecked.PAGE_SIZE];
+            pages[pageIndex] = page;
+        }
+        return page;
+    }
+
+    private Object[] pageForCas(long slot, Object expected, Object update) {
+        Object[] page = pageForRead(slot);
+        if (page != null || expected != null || update == null) {
+            return page;
+        }
+        return pageForWrite(slot);
     }
 }

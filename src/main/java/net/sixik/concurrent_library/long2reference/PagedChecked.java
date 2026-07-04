@@ -8,6 +8,7 @@ public final class PagedChecked<V> implements Long2Reference<V> {
     static final int PAGE_SIZE = 1 << PAGE_BITS;
     static final int PAGE_MASK = PAGE_SIZE - 1;
 
+    private static final VarHandle PAGE = MethodHandles.arrayElementVarHandle(Object[][].class);
     private static final VarHandle REF = MethodHandles.arrayElementVarHandle(Object[].class);
 
     private final long base;
@@ -26,11 +27,7 @@ public final class PagedChecked<V> implements Long2Reference<V> {
 
         long pageCountLong = (capacity >>> PAGE_BITS) + ((capacity & PAGE_MASK) == 0 ? 0 : 1);
         int pageCount = Math.toIntExact(pageCountLong);
-        Object[][] p = new Object[pageCount][];
-        for (int i = 0; i < pageCount; i++) {
-            p[i] = new Object[PAGE_SIZE];
-        }
-        this.pages = p;
+        this.pages = new Object[pageCount][];
         Long2ReferenceDiagnostics.diagnose(base, capacity, "paged", (capacity & PAGE_MASK) != 0);
     }
 
@@ -38,7 +35,10 @@ public final class PagedChecked<V> implements Long2Reference<V> {
     @SuppressWarnings("unchecked")
     public V get(long key) {
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getAcquire(page, (int) slot & PAGE_MASK);
     }
 
@@ -48,14 +48,17 @@ public final class PagedChecked<V> implements Long2Reference<V> {
             throw new NullPointerException();
         }
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForWrite(slot);
         REF.setRelease(page, (int) slot & PAGE_MASK, value);
     }
 
     @Override
     public void delete(long key) {
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return;
+        }
         REF.setRelease(page, (int) slot & PAGE_MASK, null);
     }
 
@@ -63,14 +66,20 @@ public final class PagedChecked<V> implements Long2Reference<V> {
     @SuppressWarnings("unchecked")
     public V remove(long key) {
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getAndSet(page, (int) slot & PAGE_MASK, null);
     }
 
     @Override
     public boolean compareAndSet(long key, V expected, V update) {
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForCas(slot, expected, update);
+        if (page == null) {
+            return expected == null;
+        }
         return REF.compareAndSet(page, (int) slot & PAGE_MASK, expected, update);
     }
 
@@ -80,7 +89,7 @@ public final class PagedChecked<V> implements Long2Reference<V> {
             throw new NullPointerException();
         }
         long slot = checkedSlotLong(key);
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForWrite(slot);
         return REF.compareAndSet(page, (int) slot & PAGE_MASK, null, value);
     }
 
@@ -104,9 +113,11 @@ public final class PagedChecked<V> implements Long2Reference<V> {
         long remaining = capacity;
         for (Object[] page : pages) {
             int limit = (int) Math.min(PAGE_SIZE, remaining);
-            for (int i = 0; i < limit; i++) {
-                if (REF.getAcquire(page, i) != null) {
-                    return false;
+            if (page != null) {
+                for (int i = 0; i < limit; i++) {
+                    if (REF.getAcquire(page, i) != null) {
+                        return false;
+                    }
                 }
             }
             remaining -= limit;
@@ -120,9 +131,11 @@ public final class PagedChecked<V> implements Long2Reference<V> {
         long remaining = capacity;
         for (Object[] page : pages) {
             int limit = (int) Math.min(PAGE_SIZE, remaining);
-            for (int i = 0; i < limit; i++) {
-                if (REF.getAcquire(page, i) != null) {
-                    count++;
+            if (page != null) {
+                for (int i = 0; i < limit; i++) {
+                    if (REF.getAcquire(page, i) != null) {
+                        count++;
+                    }
                 }
             }
             remaining -= limit;
@@ -146,7 +159,10 @@ public final class PagedChecked<V> implements Long2Reference<V> {
 
     @SuppressWarnings("unchecked")
     public V getAt(long slot) {
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getAcquire(page, (int) slot & PAGE_MASK);
     }
 
@@ -154,23 +170,32 @@ public final class PagedChecked<V> implements Long2Reference<V> {
         if (value == null) {
             throw new NullPointerException();
         }
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForWrite(slot);
         REF.setRelease(page, (int) slot & PAGE_MASK, value);
     }
 
     public void deleteAt(long slot) {
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return;
+        }
         REF.setRelease(page, (int) slot & PAGE_MASK, null);
     }
 
     @SuppressWarnings("unchecked")
     public V removeAt(long slot) {
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getAndSet(page, (int) slot & PAGE_MASK, null);
     }
 
     public boolean compareAndSetAt(long slot, V expected, V update) {
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForCas(slot, expected, update);
+        if (page == null) {
+            return expected == null;
+        }
         return REF.compareAndSet(page, (int) slot & PAGE_MASK, expected, update);
     }
 
@@ -178,7 +203,32 @@ public final class PagedChecked<V> implements Long2Reference<V> {
         if (value == null) {
             throw new NullPointerException();
         }
-        Object[] page = pages[(int) (slot >>> PAGE_BITS)];
+        Object[] page = pageForWrite(slot);
         return REF.compareAndSet(page, (int) slot & PAGE_MASK, null, value);
+    }
+
+    Object[] pageForRead(long slot) {
+        return (Object[]) PAGE.getAcquire(pages, (int) (slot >>> PAGE_BITS));
+    }
+
+    Object[] pageForWrite(long slot) {
+        int pageIndex = (int) (slot >>> PAGE_BITS);
+        Object[] page = (Object[]) PAGE.getAcquire(pages, pageIndex);
+        if (page != null) {
+            return page;
+        }
+        Object[] created = new Object[PAGE_SIZE];
+        if (PAGE.compareAndSet(pages, pageIndex, null, created)) {
+            return created;
+        }
+        return (Object[]) PAGE.getAcquire(pages, pageIndex);
+    }
+
+    private Object[] pageForCas(long slot, Object expected, Object update) {
+        Object[] page = pageForRead(slot);
+        if (page != null || expected != null || update == null) {
+            return page;
+        }
+        return pageForWrite(slot);
     }
 }

@@ -4,6 +4,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
 public final class PagedUnchecked<V> implements Long2Reference<V> {
+    private static final VarHandle PAGE = MethodHandles.arrayElementVarHandle(Object[][].class);
     private static final VarHandle REF = MethodHandles.arrayElementVarHandle(Object[].class);
 
     private final long base;
@@ -21,11 +22,7 @@ public final class PagedUnchecked<V> implements Long2Reference<V> {
         long pageCountLong = (capacity >>> PagedChecked.PAGE_BITS)
                 + ((capacity & PagedChecked.PAGE_MASK) == 0 ? 0 : 1);
         int pageCount = Math.toIntExact(pageCountLong);
-        Object[][] p = new Object[pageCount][];
-        for (int i = 0; i < pageCount; i++) {
-            p[i] = new Object[PagedChecked.PAGE_SIZE];
-        }
-        this.pages = p;
+        this.pages = new Object[pageCount][];
     }
 
     @Override
@@ -81,9 +78,11 @@ public final class PagedUnchecked<V> implements Long2Reference<V> {
         long remaining = capacity;
         for (Object[] page : pages) {
             int limit = (int) Math.min(PagedChecked.PAGE_SIZE, remaining);
-            for (int i = 0; i < limit; i++) {
-                if (REF.getAcquire(page, i) != null) {
-                    return false;
+            if (page != null) {
+                for (int i = 0; i < limit; i++) {
+                    if (REF.getAcquire(page, i) != null) {
+                        return false;
+                    }
                 }
             }
             remaining -= limit;
@@ -97,9 +96,11 @@ public final class PagedUnchecked<V> implements Long2Reference<V> {
         long remaining = capacity;
         for (Object[] page : pages) {
             int limit = (int) Math.min(PagedChecked.PAGE_SIZE, remaining);
-            for (int i = 0; i < limit; i++) {
-                if (REF.getAcquire(page, i) != null) {
-                    count++;
+            if (page != null) {
+                for (int i = 0; i < limit; i++) {
+                    if (REF.getAcquire(page, i) != null) {
+                        count++;
+                    }
                 }
             }
             remaining -= limit;
@@ -132,7 +133,10 @@ public final class PagedUnchecked<V> implements Long2Reference<V> {
 
     @SuppressWarnings("unchecked")
     public V getAtUnchecked(long slot) {
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getAcquire(page, (int) slot & PagedChecked.PAGE_MASK);
     }
 
@@ -140,23 +144,57 @@ public final class PagedUnchecked<V> implements Long2Reference<V> {
         if (value == null) {
             throw new NullPointerException();
         }
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForWrite(slot);
         REF.setRelease(page, (int) slot & PagedChecked.PAGE_MASK, value);
     }
 
     public void deleteAtUnchecked(long slot) {
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return;
+        }
         REF.setRelease(page, (int) slot & PagedChecked.PAGE_MASK, null);
     }
 
     @SuppressWarnings("unchecked")
     public V removeAtUnchecked(long slot) {
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForRead(slot);
+        if (page == null) {
+            return null;
+        }
         return (V) REF.getAndSet(page, (int) slot & PagedChecked.PAGE_MASK, null);
     }
 
     public boolean compareAndSetAtUnchecked(long slot, V expected, V update) {
-        Object[] page = pages[(int) (slot >>> PagedChecked.PAGE_BITS)];
+        Object[] page = pageForCas(slot, expected, update);
+        if (page == null) {
+            return expected == null;
+        }
         return REF.compareAndSet(page, (int) slot & PagedChecked.PAGE_MASK, expected, update);
+    }
+
+    private Object[] pageForRead(long slot) {
+        return (Object[]) PAGE.getAcquire(pages, (int) (slot >>> PagedChecked.PAGE_BITS));
+    }
+
+    private Object[] pageForWrite(long slot) {
+        int pageIndex = (int) (slot >>> PagedChecked.PAGE_BITS);
+        Object[] page = (Object[]) PAGE.getAcquire(pages, pageIndex);
+        if (page != null) {
+            return page;
+        }
+        Object[] created = new Object[PagedChecked.PAGE_SIZE];
+        if (PAGE.compareAndSet(pages, pageIndex, null, created)) {
+            return created;
+        }
+        return (Object[]) PAGE.getAcquire(pages, pageIndex);
+    }
+
+    private Object[] pageForCas(long slot, Object expected, Object update) {
+        Object[] page = pageForRead(slot);
+        if (page != null || expected != null || update == null) {
+            return page;
+        }
+        return pageForWrite(slot);
     }
 }

@@ -85,6 +85,34 @@ class Long2ReferenceTest {
     }
 
     @Test
+    void pagedAllocatesPagesLazilyForSparseLargeRanges() {
+        long capacity = (long) PagedChecked.PAGE_SIZE * 100_000L + 7L;
+        PagedChecked<String> table = Long2Reference.paged(0L, capacity);
+        long last = capacity - 1L;
+
+        assertTrue(table.isEmptyByScan());
+        assertNull(table.get(last));
+        assertNull(table.remove(last));
+        table.delete(last);
+
+        assertTrue(table.putIfAbsent(last, "last"));
+        assertEquals("last", table.get(last));
+        assertEquals(1L, table.countByScan());
+    }
+
+    @Test
+    void pagedCasOnUnallocatedPageMatchesNullSlotSemantics() {
+        PagedChecked<String> table = Long2Reference.paged(0L, (long) PagedChecked.PAGE_SIZE * 4L);
+        long key = PagedChecked.PAGE_SIZE * 3L;
+
+        assertFalse(table.compareAndSet(key, "missing", "value"));
+        assertTrue(table.compareAndSet(key, null, null));
+        assertNull(table.get(key));
+        assertTrue(table.compareAndSet(key, null, "value"));
+        assertEquals("value", table.get(key));
+    }
+
+    @Test
     void slotApiAvoidsRepeatedKeyChecks() {
         DenseChecked<String> table = Long2Reference.dense(10L, 4);
         int slot = table.checkedSlot(12L);
