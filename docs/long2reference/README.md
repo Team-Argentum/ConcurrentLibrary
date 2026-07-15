@@ -1,21 +1,24 @@
-# Long2ReferenceMap Documentation
+# Long2Reference Documentation
 
-This folder is centered around `Long2ReferenceMap<V>`, the dynamic concurrent `long -> reference` map.
+This folder is centered around two separate structures:
 
-The old `Long2Reference` fixed-range table remains in the project as a legacy direct-addressed structure. It is useful when the full key range is known in advance and does not move, but sparse or moving workloads should use `Long2ReferenceMap`.
+- `ConcurrentLong2ReferenceMap<V>` - dynamic sparse concurrent `long -> reference` map;
+- `Long2ReferenceTable<V>` - fixed-range direct-addressed table for compact, known ranges.
+
+Use concrete constructors directly. The old `Long2Reference` compatibility alias and builder/factory APIs were removed so construction stays explicit at the call site.
 
 ## Start Here
 
-- [Long2ReferenceMap.md](../Long2ReferenceMap.md) - main guide: concept, quick start, API, performance, and examples.
+- [ConcurrentLong2ReferenceMap.md](ConcurrentLong2ReferenceMap.md) - dynamic map guide: concept, quick start, API, performance, and examples.
 
 ## Quick Start
 
 ```java
-import net.sixik.concurrent_library.long2reference.Long2ReferenceMap;
+import net.sixik.concurrent_library.collections.maps.long2reference.ConcurrentLong2ReferenceMap;
 
 record OrderBook(long instrumentId, String symbol) {}
 
-Long2ReferenceMap<OrderBook> books = new Long2ReferenceMap<>(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<OrderBook> books = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
 
 books.put(42L, new OrderBook(42L, "EURUSD"));
 OrderBook book = books.get(42L);
@@ -31,7 +34,7 @@ books.resize(Long.MAX_VALUE - 1_000L, 2_000L);                   // make this ra
 
 ## What To Use
 
-Use `Long2ReferenceMap` for new code when:
+Use `ConcurrentLong2ReferenceMap` for new code when:
 
 - keys are primitive `long` values;
 - values are non-null Java references;
@@ -39,27 +42,32 @@ Use `Long2ReferenceMap` for new code when:
 - keys can be sparse or distant;
 - map-like operations and high throughput are both needed.
 
-Construction options are equivalent for the common default case:
+Construct maps directly:
 
 ```java
-Long2ReferenceMap<OrderBook> viaConstructor = new Long2ReferenceMap<>(0L, 1_000_000L);
-Long2ReferenceMap<OrderBook> viaFactory = Long2ReferenceMap.concurrent(0L, 1_000_000L);
-Long2ReferenceMap<OrderBook> viaBuilder = Long2ReferenceMap.<OrderBook>builder()
-        .hotRange(0L, 1_000_000L)
-        .build();
+ConcurrentLong2ReferenceMap<OrderBook> books = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<OrderBook> tuned = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L, 12, true, true, true);
 ```
 
-Use old fixed-range `Long2Reference` only when:
+Use fixed-range `Long2ReferenceTable` only when:
 
 - the key range is known in advance;
 - the range is compact enough for direct addressing;
 - there is no need to move the hot range.
 
+Choose the fixed-range layout explicitly:
+
+```java
+Long2ReferenceTable<OrderBook> dense = new DenseChecked<>(0L, 1_000_000);
+Long2ReferenceTable<OrderBook> paged = new PagedChecked<>(0L, 100_000_000L);
+Long2ReferenceTable<OrderBook> strict = new StrictDenseChecked<>(0L, 1_000_000);
+```
+
 ## Performance Snapshot
 
 Quick 8-thread JMH regression runs show approximately:
 
-| Scenario | Long2ReferenceMap Hot | JCTools | ConcurrentHashMap |
+| Scenario | ConcurrentLong2ReferenceMap Hot | JCTools | ConcurrentHashMap |
 |---|---:|---:|---:|
 | `get(existing)` | 630.64 M ops/s | 113.40 M ops/s | 121.71 M ops/s |
 | `mixed 90/10` | 284.29 M ops/s | 106.82 M ops/s | 86.73 M ops/s |

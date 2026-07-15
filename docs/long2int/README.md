@@ -1,8 +1,8 @@
 # Long2IntMap Documentation
 
-This folder is centered around `Long2IntMap`, the dynamic concurrent `long -> int` map.
+This folder is centered around explicit `long -> int` map implementations under `collections.maps.long2int`.
 
-The broader `Long2Int` family also includes immutable lookup tables, fixed append/update maps, and single-threaded variants. Use this folder when you need the mutable concurrent map behavior specifically. The full low-level implementation specification remains in [`../Long2Int.md`](../Long2Int.md).
+The public API is constructor-first: use concrete classes directly instead of facade factories or builders.
 
 ## Start Here
 
@@ -11,10 +11,10 @@ The broader `Long2Int` family also includes immutable lookup tables, fixed appen
 ## Quick Start
 
 ```java
-import net.sixik.concurrent_library.long2int.Long2Int;
-import net.sixik.concurrent_library.long2int.Long2IntMap;
+import net.sixik.concurrent_library.collections.maps.long2int.ConcurrentLong2IntMap;
+import net.sixik.concurrent_library.collections.maps.long2int.Long2IntMap;
 
-Long2IntMap scores = new Long2Int.DynamicDirectLong2IntMap(1_000_000);
+Long2IntMap scores = new ConcurrentLong2IntMap(1_000_000);
 
 scores.put(42L, 100);
 int score = scores.getOrDefault(42L, -1);
@@ -32,46 +32,26 @@ int value = scores.getOrDefault(42L, missing);
 
 ## What To Use
 
-Use `Long2IntMap` for new concurrent mutable code when:
-
-- keys are primitive `long` values;
-- values are primitive `int` values;
-- key boxing and value boxing are unacceptable in hot paths;
-- you need `put`, `putIfAbsent`, `remove`, `compareAndSet`, or add-if-present operations;
-- the table may need to grow or rebuild after deletes;
-- direct off-heap storage and high throughput matter more than a general-purpose Java collections API.
-
-Use `Long2Int.concurrent(expectedSize)` when:
-
-- the map is long-lived and resize count is bounded;
-- retaining retired tables until `close()` is acceptable;
-- maximum read/write throughput is more important than bounded retired memory.
-
-The equivalent constructor form is:
+Use `ConcurrentLong2IntMap` for the fastest dynamic concurrent map when retired tables can stay allocated until `close()`:
 
 ```java
-Long2IntMap map = new Long2Int.DynamicDirectLong2IntMap(expectedSize);
+Long2IntMap map = new ConcurrentLong2IntMap(expectedSize);
 ```
 
-Use `Long2Int.concurrentManaged(expectedSize)` when:
-
-- the map may resize repeatedly;
-- bounded retired direct memory is required;
-- the small hazard-pointer cost is acceptable.
-
-The equivalent constructor form is:
+Use `ManagedConcurrentLong2IntMap` when repeated resize/rebuild is expected and retired direct memory should be reclaimed before `close()`:
 
 ```java
-Long2IntMap map = new Long2Int.ManagedDynamicDirectLong2IntMap(expectedSize);
+Long2IntMap map = new ManagedConcurrentLong2IntMap(expectedSize);
 ```
 
-Use `Long2Int.fixed(expectedSize)` when:
+Use `FixedDirectLong2IntAppendMap` when capacity is known and the workload is append/update-only:
 
-- capacity is known in advance;
-- removes and resizes are not needed;
-- the workload is append/update-only and should be as fast as possible.
+```java
+Long2IntAppendMap map = new FixedDirectLong2IntAppendMap(expectedSize);
+```
 
-Use `Long2Int.lookup(keys, values)` when:
+Use `ImmutableDirectLong2IntLookup` for read-only tables built from arrays:
 
-- the data set is built once and then read-only;
-- fastest immutable lookup is the goal.
+```java
+Long2IntLookup lookup = new ImmutableDirectLong2IntLookup(keys, values);
+```

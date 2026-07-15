@@ -38,9 +38,7 @@ dependencies {
 }
 
 test {
-    useJUnitPlatform {
-        excludeTags 'single-threaded'
-    }
+    useJUnitPlatform()
 }
 
 tasks.register('benchmark', JavaExec) {
@@ -71,12 +69,3 @@ tasks.register('benchmark', JavaExec) {
     }
 }
 
-tasks.register('singleThreadedTest', Test) {
-    group = 'verification'
-    description = 'Runs legacy single-threaded Long2Int tests that are excluded from the default concurrent test suite.'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'single-threaded'
-    }
-}

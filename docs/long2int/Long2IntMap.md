@@ -40,10 +40,10 @@ General-purpose concurrent maps are flexible, but `long -> int` hot paths pay co
 ## Quick Start
 
 ```java
-import net.sixik.concurrent_library.long2int.Long2Int;
-import net.sixik.concurrent_library.long2int.Long2IntMap;
+import net.sixik.concurrent_library.collections.maps.long2int.ConcurrentLong2IntMap;
+import net.sixik.concurrent_library.collections.maps.long2int.Long2IntMap;
 
-Long2IntMap counts = Long2Int.concurrent(1_000_000);
+Long2IntMap counts = new ConcurrentLong2IntMap(1_000_000);
 
 counts.put(42L, 7);
 
@@ -61,47 +61,35 @@ counts.close();
 `expectedSize` is an expected number of mappings, not the exact internal capacity. The implementation rounds to a power-of-two table sized for the load factor policy.
 
 ```java
-Long2IntMap map = Long2Int.concurrent(100_000);
+Long2IntMap map = new ConcurrentLong2IntMap(100_000);
 System.out.println(map.capacity());
 ```
 
-## Constructors And Factories
+## Constructors
 
-`Long2IntMap` is an interface, so it cannot be instantiated directly. Use the concrete public constructors when constructor syntax is preferred:
-
-```java
-Long2IntMap fastest = new Long2Int.DynamicDirectLong2IntMap(expectedSize);
-Long2IntMap managed = new Long2Int.ManagedDynamicDirectLong2IntMap(expectedSize);
-```
-
-The static factories remain equivalent shortcuts:
+`Long2IntMap` is an interface, so it cannot be instantiated directly. Use concrete public constructors for the primary API:
 
 ```java
-Long2IntMap fastest = Long2Int.concurrent(expectedSize);
-Long2IntMap managed = Long2Int.concurrentManaged(expectedSize);
+Long2IntMap fastest = new ConcurrentLong2IntMap(expectedSize);
+Long2IntMap managed = new ManagedConcurrentLong2IntMap(expectedSize);
 ```
 
 The broader family includes these related structures:
 
-| Factory | Type | Use case |
+| Creation API | Type | Use case |
 |---|---|---|
-| `Long2Int.lookup(keys, values)` | `Long2IntLookup` | Immutable direct lookup built from arrays. |
-| `Long2Int.lookupBuilder(expectedSize)` | `Long2IntLookupBuilder` | Incremental builder for immutable lookup. |
-| `Long2Int.fixed(expectedSize)` | `Long2IntAppendMap` | Fixed-capacity append/update map without remove or resize. |
-| `Long2Int.fixedBuilder(expectedSize)` | `Long2IntAppendMapBuilder` | Incremental builder for fixed append/update map. |
-| `new Long2Int.DynamicDirectLong2IntMap(expectedSize)` | `Long2IntMap` | Fastest dynamic concurrent map; retired tables remain until `close()`. |
-| `new Long2Int.ManagedDynamicDirectLong2IntMap(expectedSize)` | `Long2IntMap` | Dynamic concurrent map with hazard-pointer reclamation. |
-| `Long2Int.concurrent(expectedSize)` | `Long2IntMap` | Factory alias for `DynamicDirectLong2IntMap`. |
-| `Long2Int.concurrentManaged(expectedSize)` | `Long2IntMap` | Factory alias for `ManagedDynamicDirectLong2IntMap`. |
-| `Long2Int.singleThreadedBuilder(expectedSize)` | `SingleThreadLong2IntBuilder` | Single-threaded heap/direct/Panama variants. |
+| `new ImmutableDirectLong2IntLookup(keys, values)` | `Long2IntLookup` | Immutable direct lookup built from arrays. |
+| `new FixedDirectLong2IntAppendMap(expectedSize)` | `Long2IntAppendMap` | Fixed-capacity append/update map without remove or resize. |
+| `new ConcurrentLong2IntMap(expectedSize)` | `Long2IntMap` | Fastest dynamic concurrent map; retired tables remain until `close()`. |
+| `new ManagedConcurrentLong2IntMap(expectedSize)` | `Long2IntMap` | Dynamic concurrent map with hazard-pointer reclamation. |
 
 ## Dynamic Or Managed
 
-`Long2Int.concurrent(...)` and `Long2Int.concurrentManaged(...)` share the same table layout, probing logic, mutation logic, resize protocol, and public API. They differ only in how old direct-memory tables are protected and reclaimed after resize.
+`ConcurrentLong2IntMap` and `ManagedConcurrentLong2IntMap` share the same table layout, probing logic, mutation logic, resize protocol, and public API. They differ only in how old direct-memory tables are protected and reclaimed after resize.
 
-### `Long2Int.concurrent(expectedSize)`
+### `ConcurrentLong2IntMap`
 
-`DynamicDirectLong2IntMap` is the fastest dynamic mode.
+`ConcurrentLong2IntMap` is the fastest dynamic mode.
 
 Retired tables are appended to an internal retired list and freed only when the map is closed.
 
@@ -113,14 +101,14 @@ Use it when:
 - temporary extra direct memory after resize is acceptable.
 
 ```java
-try (Long2IntMap map = Long2Int.concurrent(1_000_000)) {
+try (Long2IntMap map = new ConcurrentLong2IntMap(1_000_000)) {
     map.put(1L, 10);
 }
 ```
 
-### `Long2Int.concurrentManaged(expectedSize)`
+### `ManagedConcurrentLong2IntMap`
 
-`ManagedDynamicDirectLong2IntMap` adds hazard-pointer protection around current table views.
+`ManagedConcurrentLong2IntMap` adds hazard-pointer protection around current table views.
 
 When resize finishes, retired tables can be reclaimed once no registered thread protects a view containing that table.
 
@@ -132,14 +120,14 @@ Use it when:
 - long-running services need safer memory behavior.
 
 ```java
-try (Long2IntMap map = Long2Int.concurrentManaged(1_000_000)) {
+try (Long2IntMap map = new ManagedConcurrentLong2IntMap(1_000_000)) {
     map.put(1L, 10);
 }
 ```
 
 ### Practical Rule
 
-Start with `concurrent(...)` for maximum throughput when memory retention is acceptable. Use `concurrentManaged(...)` for services that resize many times or must release retired tables before `close()`.
+Start with `ConcurrentLong2IntMap` for maximum throughput when memory retention is acceptable. Use `ManagedConcurrentLong2IntMap` for services that resize many times or must release retired tables before `close()`.
 
 ## Data Model
 
@@ -195,9 +183,9 @@ New unrelated keys are inserted only into true `EMPTY` slots. Deleted slots are 
 Diagnostics are intentionally outside the hot interface:
 
 ```java
-Long2IntStats stats = Long2Int.inspect(map).stats();
-Long2IntHealth health = Long2Int.inspect(map).healthCheck();
-long exactSize = Long2Int.inspect(map).exactSize();
+Long2IntStats stats = map.inspector().stats();
+Long2IntHealth health = map.inspector().healthCheck();
+long exactSize = map.inspector().exactSize();
 ```
 
 ## Missing Value Policy
@@ -297,14 +285,14 @@ Important semantics:
 - direct memory must be released with `close()`;
 - operations after `close()` throw `IllegalStateException`.
 
-`DynamicDirectLong2IntMap` protects old tables by retaining them until close. `ManagedDynamicDirectLong2IntMap` protects old tables with hazard pointers and frees retired tables once safe.
+`ConcurrentLong2IntMap` protects old tables by retaining them until close. `ManagedConcurrentLong2IntMap` protects old tables with hazard pointers and frees retired tables once safe.
 
 ## Diagnostics
 
-Use `Long2Int.inspect(map)` for statistics and health checks:
+Use `map.inspector()` for statistics and health checks:
 
 ```java
-Long2IntInspector inspector = Long2Int.inspect(map);
+Long2IntInspector inspector = map.inspector();
 
 Long2IntStats stats = inspector.stats();
 Long2IntHealth health = inspector.healthCheck();
@@ -394,7 +382,7 @@ Use the same JVM, same Blackhole mode, same thread count, and same benchmark par
 ### Frequency Counter With Explicit Initialization
 
 ```java
-Long2IntMap counts = Long2Int.concurrent(1_000_000);
+Long2IntMap counts = new ConcurrentLong2IntMap(1_000_000);
 
 void register(long id) {
     counts.putIfAbsent(id, 0);
@@ -416,7 +404,7 @@ int read(long id) {
 ```java
 static final int MISSING_SCORE = Integer.MIN_VALUE;
 
-Long2IntMap scores = Long2Int.concurrentManaged(100_000);
+Long2IntMap scores = new ManagedConcurrentLong2IntMap(100_000);
 
 scores.put(playerId, 1200);
 
@@ -430,7 +418,7 @@ int removed = scores.removeAndGetOld(playerId, MISSING_SCORE);
 ### Bulk Load Then Read Phase
 
 ```java
-Long2IntMap index = Long2Int.concurrent(10_000_000);
+Long2IntMap index = new ConcurrentLong2IntMap(10_000_000);
 
 for (int i = 0; i < keys.length; i++) {
     index.put(keys[i], values[i]);
@@ -445,7 +433,7 @@ int value = index.getOrDefault(queryKey, -1);
 ### Managed Long-Running Service
 
 ```java
-Long2IntMap map = Long2Int.concurrentManaged(1_000_000);
+Long2IntMap map = new ManagedConcurrentLong2IntMap(1_000_000);
 
 try {
     runService(map);
@@ -483,7 +471,7 @@ Prefer another structure when:
 - values are not naturally `int`;
 - sorted iteration is required;
 - boxed `Map<Long, Integer>` compatibility is more important than hot-path speed;
-- nullability or object values are required, where `Long2ReferenceMap<V>` is a better match;
+- nullability or object values are required, where `ConcurrentLong2ReferenceMap<V>` is a better match;
 - direct memory lifecycle cannot be controlled;
 - strict snapshot traversal or transactional multi-key behavior is required.
 
@@ -492,16 +480,16 @@ Prefer another structure when:
 Start with a realistic expected size:
 
 ```java
-Long2IntMap map = Long2Int.concurrent(expectedMappings);
+Long2IntMap map = new ConcurrentLong2IntMap(expectedMappings);
 ```
 
 Rules of thumb:
 
 - call `completeResize()` after large bulk-load phases;
-- use `concurrentManaged(...)` when repeated resize must not retain old tables until close;
-- use `concurrent(...)` when peak speed is more important than retired-memory bounds;
-- use `fixed(...)` when the table never removes or resizes;
-- use `lookup(...)` for immutable data;
+- use `ManagedConcurrentLong2IntMap` when repeated resize must not retain old tables until close;
+- use `ConcurrentLong2IntMap` when peak speed is more important than retired-memory bounds;
+- use `FixedDirectLong2IntAppendMap` when the table never removes or resizes;
+- use `ImmutableDirectLong2IntLookup` for immutable data;
 - use `getOrDefault(...)` with a domain-specific sentinel when `0` is a valid value;
 - inspect `deleteCount`, `usedSlots`, `loadFactor`, and `retiredBytes` during stress tests;
 - compare changes with JMH before keeping micro-optimizations.
