@@ -19,7 +19,7 @@ public final class DODEventBus {
     private static final AtomicInteger EVENT_TYPE_ID_GENERATOR = new AtomicInteger(0);
 
     /**
-     * Класс-маркер для события. Заменяет Class<?> и служит ключом.
+     * Класс-маркер для события. Заменяет {@code Class<?>} и служит ключом.
      * @param <T> Тип данных события
      */
     public static class EventType<T> {
