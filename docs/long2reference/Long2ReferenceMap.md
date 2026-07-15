@@ -1,8 +1,8 @@
-# Long2ReferenceMap
+# ConcurrentLong2ReferenceMap
 
-`Long2ReferenceMap<V>` is a concurrent dynamic `long -> reference` map.
+`ConcurrentLong2ReferenceMap<V>` is a concurrent dynamic `long -> reference` map.
 
-It is the recommended structure when keys are primitive `long` values, the active key range can move over time, and the fixed-range `Long2Reference` family is too rigid. The old `Long2Reference` implementation remains useful as a legacy direct-addressed table for compact static ranges, but sparse or moving workloads should use `Long2ReferenceMap`.
+It is the recommended structure when keys are primitive `long` values, the active key range can move over time, and the fixed-range `Long2ReferenceTable` family is too rigid. Construction is explicit through concrete classes; the old compatibility alias and builder/factory APIs were removed.
 
 Core idea:
 
@@ -17,7 +17,7 @@ hot path accelerator  = replaceable direct-addressed window over the active rang
 
 `ConcurrentHashMap<Long, V>` is flexible, but hot operations pay for key boxing, hashing, probing, and a general-purpose map layout.
 
-The old `Long2Reference` is very direct, but it requires a fixed range:
+`Long2ReferenceTable` is very direct, but it requires a fixed range:
 
 ```text
 slot = key - baseKey
@@ -25,7 +25,7 @@ slot = key - baseKey
 
 That is excellent when the range is known, compact, and stable. It is a poor fit when keys are sparse, distant, or when the active range changes over time.
 
-`Long2ReferenceMap` sits between these two shapes:
+`ConcurrentLong2ReferenceMap` sits between these two shapes:
 
 - primitive `long` API with no key boxing on the primary path;
 - familiar map-like operations: `get`, `put`, `remove`, `replace`, `compute`, `merge`;
@@ -37,11 +37,11 @@ That is excellent when the range is known, compact, and stable. It is a poor fit
 ## Quick Start
 
 ```java
-import net.sixik.concurrent_library.long2reference.Long2ReferenceMap;
+import net.sixik.concurrent_library.collections.maps.long2reference.ConcurrentLong2ReferenceMap;
 
 record OrderBook(long instrumentId, String symbol) {}
 
-Long2ReferenceMap<OrderBook> books = new Long2ReferenceMap<>(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<OrderBook> books = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
 
 books.put(42L, new OrderBook(42L, "EURUSD"));
 
@@ -50,7 +50,7 @@ OrderBook book = books.get(42L);
 books.remove(42L);
 ```
 
-`concurrent(baseKey, capacity)` sets the initial hot range:
+The constructor sets the initial hot range:
 
 ```text
 [baseKey, baseKey + capacity)
@@ -59,7 +59,7 @@ books.remove(42L);
 This is not the complete valid key domain. It is only the range the map tries to serve through the fastest path.
 
 ```java
-Long2ReferenceMap<String> map = Long2ReferenceMap.concurrent(1_000L, 10_000L);
+ConcurrentLong2ReferenceMap<String> map = new ConcurrentLong2ReferenceMap<>(1_000L, 10_000L);
 
 map.put(1_234L, "hot");             // hot path
 map.put(Long.MAX_VALUE, "distant"); // valid, cold sparse path
@@ -70,48 +70,47 @@ map.get(Long.MAX_VALUE);             // now covered by the hot window
 map.get(1_234L);                     // still valid, now cold path
 ```
 
-## Constructors And Builder
+## Constructors
 
 Use constructors for the common default configuration:
 
 ```java
-Long2ReferenceMap<OrderBook> emptyHotRange = new Long2ReferenceMap<>();
+ConcurrentLong2ReferenceMap<OrderBook> emptyHotRange = new ConcurrentLong2ReferenceMap<>();
 
-Long2ReferenceMap<OrderBook> books = new Long2ReferenceMap<>(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<OrderBook> books = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
 
-Long2ReferenceMap<OrderBook> smallPages = new Long2ReferenceMap<>(0L, 1_000_000L, 10);
+ConcurrentLong2ReferenceMap<OrderBook> smallPages = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L, 10);
 ```
 
-These constructors use the same defaults as `builder()`:
+Use direct constructors for both default and tuned configurations:
 
 | Constructor | Meaning |
 |---|---|
-| `new Long2ReferenceMap<>()` | Empty hot range with default page settings. |
-| `new Long2ReferenceMap<>(baseKey, capacity)` | Initial hot range with default page settings. |
-| `new Long2ReferenceMap<>(baseKey, capacity, pageBits)` | Initial hot range with custom page size. |
-| `Long2ReferenceMap.concurrent(...)` | Static factory alias for the default constructors. |
+| `new ConcurrentLong2ReferenceMap<>()` | Empty hot range with default page settings. |
+| `new ConcurrentLong2ReferenceMap<>(baseKey, capacity)` | Initial hot range with default page settings. |
+| `new ConcurrentLong2ReferenceMap<>(baseKey, capacity, pageBits)` | Initial hot range with custom page size. |
+| `new ConcurrentLong2ReferenceMap<>(baseKey, capacity, pageBits, prefillHotWindow, vacuumOnEmptyPage, mapViewEnabled)` | Fully tuned configuration. |
 
-### Builder
-
-Most code should start with `Long2ReferenceMap.concurrent(...)`. Use the builder when you need to tune page size, hot-window behavior, or `ConcurrentMap` compatibility.
+Use the full constructor when you need to tune page size, hot-window behavior, or `ConcurrentMap` compatibility.
 
 ```java
-Long2ReferenceMap<OrderBook> books = Long2ReferenceMap.<OrderBook>builder()
-        .hotRange(0L, 1_000_000L)
-        .pageBits(12)
-        .prefillHotWindow(true)
-        .vacuumOnEmptyPage(true)
-        .mapViewEnabled(true)
-        .build();
+ConcurrentLong2ReferenceMap<OrderBook> books = new ConcurrentLong2ReferenceMap<>(
+        0L,
+        1_000_000L,
+        12,
+        true,
+        true,
+        true
+);
 ```
 
 | Option | Default | Meaning |
 |---|---:|---|
-| `hotRange(baseKey, capacity)` | `0, 0` | Sets the initially accelerated range. Keys outside it remain valid. |
-| `pageBits(bits)` | `12` | Page size is `1 << bits`. Larger pages reduce page count but may waste memory on sparse workloads. |
-| `prefillHotWindow(enabled)` | `true` | Caches known page cells when a new hot window is built. |
-| `vacuumOnEmptyPage(enabled)` | `true` | Allows empty pages to retire after the last mapping is removed. |
-| `mapViewEnabled(enabled)` | `true` | Enables or disables `asMapView()`. Disable it if boxed `ConcurrentMap<Long,V>` compatibility is never needed. |
+| `baseKey, capacity` | `0, 0` | Sets the initially accelerated range. Keys outside it remain valid. |
+| `pageBits` | `12` | Page size is `1 << pageBits`. Larger pages reduce page count but may waste memory on sparse workloads. |
+| `prefillHotWindow` | `true` | Caches known page cells when a new hot window is built. |
+| `vacuumOnEmptyPage` | `true` | Allows empty pages to retire after the last mapping is removed. |
+| `mapViewEnabled` | `true` | Enables or disables `asMapView()`. Disable it if boxed `ConcurrentMap<Long,V>` compatibility is never needed. |
 
 ## Data Model
 
@@ -274,7 +273,7 @@ session.status = "CLOSED"; // readers do not automatically synchronize with this
 `asMapView()` is for integration with Java APIs that expect `ConcurrentMap<Long,V>`.
 
 ```java
-Long2ReferenceMap<OrderBook> primitive = Long2ReferenceMap.concurrent(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<OrderBook> primitive = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
 ConcurrentMap<Long, OrderBook> boxed = primitive.asMapView();
 
 boxed.computeIfAbsent(42L, id -> new OrderBook(id, "EURUSD"));
@@ -289,7 +288,7 @@ Pages are allocated lazily. Empty pages can retire automatically after the last 
 Explicit empty-page cleanup:
 
 ```java
-Long2ReferenceMap.VacuumStats vacuum = map.vacuum();
+ConcurrentLong2ReferenceMap.VacuumStats vacuum = map.vacuum();
 
 System.out.println(vacuum.scannedCells());
 System.out.println(vacuum.retiredPages());
@@ -298,7 +297,7 @@ System.out.println(vacuum.retiredPages());
 Diagnostics:
 
 ```java
-Long2ReferenceMap.Long2ReferenceMapStats stats = map.stats();
+ConcurrentLong2ReferenceMap.ConcurrentLong2ReferenceMapStats stats = map.stats();
 
 System.out.println(stats.mappingCount());
 System.out.println(stats.allocatedPages());
@@ -323,7 +322,7 @@ These are not publication-quality runs; error bars are large in several scenario
 
 ### Throughput, M ops/s
 
-| Scenario | Long2ReferenceMap Hot | Long2ReferenceMap Cold | ConcurrentHashMap | JCTools NonBlockingHashMapLong | Trivago blocking | Trivago busy-waiting |
+| Scenario | ConcurrentLong2ReferenceMap Hot | ConcurrentLong2ReferenceMap Cold | ConcurrentHashMap | JCTools NonBlockingHashMapLong | Trivago blocking | Trivago busy-waiting |
 |---|---:|---:|---:|---:|---:|---:|
 | `get(existing)` | 630.64 | 226.44 | 121.71 | 113.40 | 35.46 | 37.08 |
 | `mixed 90% read / 10% write` | 284.29 | 159.98 | 86.73 | 106.82 | 27.61 | 32.10 |
@@ -345,7 +344,7 @@ The Trivago wrapper is benchmarked here as primitive `long -> long`, not as a di
 | Hot striped `put(existing)` vs JCTools | `399.57 / 257.85` | `1.55x` faster |
 | Hot striped `setExisting` vs JCTools replace | `415.30 / 320.63` | `1.30x` faster |
 
-Summary: `Long2ReferenceMap` dominates read-heavy and mixed workloads. In the synthetic worst case where all threads repeatedly overwrite the same small key set, JCTools still wins. In striped overwrite, where threads operate on separate key ranges, `Long2ReferenceMap` wins because it performs direct page-slot access without hashing or probing.
+Summary: `ConcurrentLong2ReferenceMap` dominates read-heavy and mixed workloads. In the synthetic worst case where all threads repeatedly overwrite the same small key set, JCTools still wins. In striped overwrite, where threads operate on separate key ranges, `ConcurrentLong2ReferenceMap` wins because it performs direct page-slot access without hashing or probing.
 
 ## Benchmark Commands
 
@@ -390,11 +389,11 @@ Separate read-path regression check:
 ### Entity Store
 
 ```java
-import net.sixik.concurrent_library.long2reference.Long2ReferenceMap;
+import net.sixik.concurrent_library.collections.maps.long2reference.ConcurrentLong2ReferenceMap;
 
 record EntityView(long id, int x, int y) {}
 
-Long2ReferenceMap<EntityView> entities = Long2ReferenceMap.concurrent(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<EntityView> entities = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
 
 void spawn(long entityId, int x, int y) {
     entities.put(entityId, new EntityView(entityId, x, y));
@@ -416,10 +415,7 @@ void despawn(long entityId) {
 ### Moving Hot Range
 
 ```java
-Long2ReferenceMap<ChunkState> chunks = Long2ReferenceMap.<ChunkState>builder()
-        .hotRange(playerChunkBase, 16_384L)
-        .pageBits(12)
-        .build();
+ConcurrentLong2ReferenceMap<ChunkState> chunks = new ConcurrentLong2ReferenceMap<>(playerChunkBase, 16_384L, 12);
 
 // The active chunk id range moved.
 chunks.resize(newPlayerChunkBase, 16_384L);
@@ -430,7 +426,7 @@ Mappings outside the new hot range remain valid. They simply use the cold radix 
 ### Cache With `computeIfAbsent`
 
 ```java
-Long2ReferenceMap<Model> models = Long2ReferenceMap.concurrent(0L, 1_000_000L);
+ConcurrentLong2ReferenceMap<Model> models = new ConcurrentLong2ReferenceMap<>(0L, 1_000_000L);
 
 Model model = models.computeIfAbsent(modelId, id -> loadModel(id));
 ```
@@ -463,7 +459,7 @@ If absence is a normal case, use `put`, not `setExisting`.
 
 ## When To Use
 
-Use `Long2ReferenceMap` when:
+Use `ConcurrentLong2ReferenceMap` when:
 
 - keys are primitive `long` values;
 - values are Java references;
@@ -491,7 +487,7 @@ Prefer another structure when:
 - sorted iteration is required;
 - real `null` values must be stored directly;
 - every thread constantly overwrites the same tiny key set and JCTools already wins that contention pattern;
-- the key range is compact, known in advance, and never changes, where fixed-range `Long2Reference` may be simpler and faster;
+- the key range is compact, known in advance, and never changes, where fixed-range `Long2ReferenceTable` may be simpler and faster;
 - strict snapshot or transactional traversal semantics are required.
 
 ## Practical Tuning
@@ -499,7 +495,7 @@ Prefer another structure when:
 Start with defaults:
 
 ```java
-Long2ReferenceMap<Value> map = Long2ReferenceMap.concurrent(baseKey, capacity);
+ConcurrentLong2ReferenceMap<Value> map = new ConcurrentLong2ReferenceMap<>(baseKey, capacity);
 ```
 
 Tune only after measuring.
@@ -516,7 +512,7 @@ Rules of thumb:
 
 ## Positioning
 
-`Long2ReferenceMap` is not a fixed direct table with `resize` bolted on.
+`ConcurrentLong2ReferenceMap` is not a fixed direct table with `resize` bolted on.
 
 It is a dynamic sparse map with a direct hot accelerator.
 

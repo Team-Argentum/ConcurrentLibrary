@@ -1,9 +1,20 @@
 plugins {
     id 'java'
+    id 'maven-publish'
 }
 
-group = 'net.sixik.sam'
-version = '1.0-SNAPSHOT'
+group = System.getenv('GROUP') ?: 'net.sixik.sam'
+version = System.getenv('VERSION') ?: '1.0-SNAPSHOT'
+description = 'Concurrent primitive collections and utilities.'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+
+    withSourcesJar()
+    withJavadocJar()
+}
 
 repositories {
     mavenCentral()
@@ -37,9 +48,45 @@ dependencies {
     implementation "org.jetbrains:annotations:26.1.0"
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+javadoc {
+    options.encoding = 'UTF-8'
+    options.addStringOption('Xdoclint:none', '-quiet')
+}
+
 test {
-    useJUnitPlatform {
-        excludeTags 'single-threaded'
+    useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            artifactId = System.getenv('ARTIFACT') ?: project.name
+
+            pom {
+                name = 'ConcurrentLibrary'
+                description = project.description
+                url = 'https://github.com/Team-Argentum/ConcurrentLibrary'
+
+                developers {
+                    developer {
+                        id = 'Team-Argentum'
+                        name = 'Team Argentum'
+                    }
+                }
+
+                scm {
+                    connection = 'scm:git:https://github.com/Team-Argentum/ConcurrentLibrary.git'
+                    developerConnection = 'scm:git:https://github.com/Team-Argentum/ConcurrentLibrary.git'
+                    url = 'https://github.com/Team-Argentum/ConcurrentLibrary'
+                }
+            }
+        }
     }
 }
 
@@ -50,7 +97,7 @@ tasks.register('benchmark', JavaExec) {
     classpath = sourceSets.benchmark.runtimeClasspath
     mainClass = 'org.openjdk.jmh.Main'
 
-    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark|Long2ReferenceMapConcurrentBenchmark|Long2IntStressBenchmark|Long2ReferenceStressBenchmark')
+    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark|Long2ReferenceMapConcurrentBenchmark|Long2IntStressBenchmark|Long2ReferenceStressBenchmark|ChunkMapBenchmark|ChunkMapMinecraftBenchmark')
     def extraArgs = providers.gradleProperty('benchmarkArgs').orElse('')
     def resultFormat = providers.gradleProperty('benchmarkResultFormat').orElse('json')
     def resultFileOverride = providers.gradleProperty('benchmarkResultFile')
@@ -71,12 +118,3 @@ tasks.register('benchmark', JavaExec) {
     }
 }
 
-tasks.register('singleThreadedTest', Test) {
-    group = 'verification'
-    description = 'Runs legacy single-threaded Long2Int tests that are excluded from the default concurrent test suite.'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'single-threaded'
-    }
-}
