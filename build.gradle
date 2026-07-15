@@ -48,7 +48,7 @@ tasks.register('benchmark', JavaExec) {
     classpath = sourceSets.benchmark.runtimeClasspath
     mainClass = 'org.openjdk.jmh.Main'
 
-    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark|Long2ReferenceMapConcurrentBenchmark|Long2IntStressBenchmark|Long2ReferenceStressBenchmark')
+    def include = providers.gradleProperty('benchmarkInclude').orElse('Long2IntBenchmark|Long2ReferenceMapConcurrentBenchmark|Long2IntStressBenchmark|Long2ReferenceStressBenchmark|ChunkMapBenchmark|ChunkMapMinecraftBenchmark')
     def extraArgs = providers.gradleProperty('benchmarkArgs').orElse('')
     def resultFormat = providers.gradleProperty('benchmarkResultFormat').orElse('json')
     def resultFileOverride = providers.gradleProperty('benchmarkResultFile')
